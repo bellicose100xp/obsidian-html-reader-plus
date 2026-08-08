@@ -1,7 +1,7 @@
 {
-	"name": "obsidian-html-plugin",
-	"version": "1.0.15",
-	"description": "This is a HTML file reader plugin for Obsidian. Can open document with \".html\" and \".htm\" file extensions.",
+	"name": "obsidian-html-reader-plus",
+	"version": "1.0.15-plus.1",
+	"description": "Read \".html\" and \".htm\" files. Fork of HTML Reader that keeps sticky page headers pinned and keeps Obsidian hotkeys working inside rendered files.",
 	"main": "main.js",
 	"scripts": {
 		"dev": "node esbuild.config.mjs",

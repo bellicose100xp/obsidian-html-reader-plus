@@ -1,10 +1,10 @@
 {
-	"id": "obsidian-html-plugin",
-	"name": "HTML Reader",
-	"version": "1.0.15",
+	"id": "obsidian-html-reader-plus",
+	"name": "HTML Reader Plus",
+	"version": "1.0.15-plus.1",
 	"minAppVersion": "0.15.3",
-	"description": "This is a HTML file reader plugin for Obsidian. Can open document with \".html\" and \".htm\" file extensions.",
-	"author": "Nuthrash",
+	"description": "Read \".html\" and \".htm\" files. Fork of HTML Reader that keeps sticky page headers pinned and keeps Obsidian hotkeys working inside rendered files.",
+	"author": "Nuthrash, fork by Chandan Chauhan",
 	"authorUrl": "https://github.com/nuthrash/obsidian-html-plugin",
 	"isDesktopOnly": false
 }

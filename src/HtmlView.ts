@@ -130,6 +130,8 @@ export class HtmlView extends FileView {
 				iframe.contentWindow.addEventListener( 'keydown', (evt) => {
 					iframe.dispatchEvent( new evt.constructor(evt.type, evt) );
 				}, false );
+
+				forwardHotkeysToObsidian( iframe );
 			};
 			
 			dispatchEvent(new CustomEvent("DOMContentLoaded"));
@@ -345,16 +347,83 @@ async function sanitizeAndApplyPatches( doc: HTMLDocument ): Promise<void> {
 	}
 }
 
+// Hand every keystroke that happens inside the iframe to Obsidian's hotkey manager.
+//
+// The bubble-phase re-dispatch above is enough for ordinary pages, but a page that runs
+// its own scripts can register a capture-phase keydown listener and call
+// stopImmediatePropagation(), which kills the event before anything else sees it. That
+// silently breaks every Obsidian shortcut while such a file is open. Registering our own
+// capture listener does not help: the page's listener was registered first, and
+// stopImmediatePropagation() drops the remaining listeners on the same target and phase.
+//
+// So we make keyboard events unstoppable inside the iframe realm and forward a copy to
+// app.keymap.onKeyEvent(), which is the same entry point Obsidian uses for webviews.
+// Only KeyboardEvent is affected, so a page's mouse and touch handling is left intact.
+function forwardHotkeysToObsidian( iframe: any ) {
+	const frameWin = iframe.contentWindow;
+	if( !frameWin )
+		return;
+
+	const keymap = iframe.mainView?.app?.keymap;
+	if( !keymap?.onKeyEvent )
+		return;
+
+	// let keyboard events run their full path even if the page tries to cut them short
+	const proto = frameWin.Event.prototype;
+	const stopPropagation = proto.stopPropagation;
+	const stopImmediatePropagation = proto.stopImmediatePropagation;
+	proto.stopPropagation = function() {
+		if( !(this instanceof frameWin.KeyboardEvent) )
+			stopPropagation.call( this );
+	};
+	proto.stopImmediatePropagation = function() {
+		if( !(this instanceof frameWin.KeyboardEvent) )
+			stopImmediatePropagation.call( this );
+	};
+
+	frameWin.addEventListener( 'keydown', (evt: KeyboardEvent) => {
+		// a page's own text inputs keep their keystrokes, otherwise typing in an
+		// embedded search box would trigger single-key Obsidian hotkeys
+		const target = evt.target as HTMLElement | null;
+		if( target?.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target?.tagName ?? '') )
+			return;
+
+		// rebuild in the host realm, Obsidian's keymap reads instanceof against its own window
+		keymap.onKeyEvent( new KeyboardEvent('keydown', {
+			key: evt.key,
+			code: evt.code,
+			ctrlKey: evt.ctrlKey,
+			shiftKey: evt.shiftKey,
+			altKey: evt.altKey,
+			metaKey: evt.metaKey,
+			repeat: evt.repeat,
+			bubbles: true,
+			cancelable: true,
+		}) );
+	}, true );
+}
+
 function applyUserInteractivePatches( doc: HTMLDocument ) {
 	if( !doc.body.style ) {
-		doc.body.setAttribute( 'style', "overflow-x: hidden; overflow-y: auto; user-select: text; max-width: 100%; word-wrap: break-word;" );
+		doc.body.setAttribute( 'style', "overflow-x: clip; overflow-y: visible; user-select: text; max-width: 100%; word-wrap: break-word;" );
 		return;
 	}
 	
-	// avoid some HTML files unable to scroll, only when 'overflow' is not set
+	// Keep wide content from scrolling sideways without breaking 'position: sticky'.
+	//
+	// 'overflow-x: hidden' cannot be used here. Per the CSS overflow spec a non-visible
+	// value on one axis computes the other axis away from 'visible', so hiding the
+	// horizontal axis alone yields 'overflow: hidden visible' and makes <body> a scroll
+	// container. Sticky children then resolve against that box instead of the iframe
+	// viewport, and page headers meant to stay pinned scroll out of view.
+	//
+	// 'clip' does the same visual clipping but explicitly does not create a scroll
+	// container, and it is the one non-visible value that may pair with 'visible' on the
+	// other axis. That keeps <body> out of the way so the iframe viewport stays the
+	// scrollport that sticky resolves against.
 	if( doc.body.style.overflow === '' ) {
-		doc.body.style.overflowX = 'hidden';
-		doc.body.style.overflowY = 'auto';
+		doc.body.style.overflowX = 'clip';
+		doc.body.style.overflowY = 'visible';
 	}
 	// avoid horizontal overflow on any element
 	if( doc.body.style.maxWidth === '' )
@@ -363,9 +432,10 @@ function applyUserInteractivePatches( doc: HTMLDocument ) {
 	if( doc.body.style.userSelect === '' )
 		doc.body.style.userSelect = 'text';
 	
-	// also constrain html root element
+	// also constrain html root element, again with 'clip' so the root keeps scrolling
+	// vertically and stays the scrollport for sticky elements
 	if( doc.documentElement.style.overflowX === '' )
-		doc.documentElement.style.overflowX = 'hidden';
+		doc.documentElement.style.overflowX = 'clip';
 }
 
 async function removeScriptTagsAndExtScripts( doc: HTMLDocument ): Promise<void> {
@@ -1047,7 +1117,7 @@ const MAINVIEW_HTML: string = `
   </div>
 </div>
 
-<iframe style="border: none; flex-grow: 1; width: 100%; overflow-x: hidden; overflow-y: auto;" loading="eager" margin="0" padding="0"  width="100%" height="100%" id="ohpIframe">
+<iframe style="border: none; flex-grow: 1; width: 100%; overflow-x: hidden;" loading="eager" margin="0" padding="0"  width="100%" height="100%" id="ohpIframe">
 </iframe>
 `;
 
