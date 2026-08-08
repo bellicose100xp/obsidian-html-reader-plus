@@ -2,6 +2,7 @@ import { addIcon, Plugin, WorkspaceLeaf } from 'obsidian';
 import { HtmlView, showError, HTML_FILE_EXTENSIONS, ICON_HTML, VIEW_TYPE_HTML } from './HtmlView';
 import { HtmlPluginSettings, HtmlSettingTab, DEFAULT_SETTINGS } from './HtmlPluginSettings';
 
+// Version bumped to 1.0.17 to verify BRAT picks up new releases. No behavior change.
 export default class HtmlPlugin extends Plugin {
 	settings!: HtmlPluginSettings;
 	
