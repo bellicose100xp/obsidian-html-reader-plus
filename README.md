@@ -78,21 +78,15 @@ cannot apply without reimplementing motions against the rendered document.
 ## Installing with BRAT
 
 [BRAT](https://github.com/TfTHacker/obsidian42-brat) installs plugins straight from a GitHub
-repo and can keep them updated. Because this repo is **private**, BRAT needs a token before
-it can see it.
+repo and can keep them updated. This repo is public, so no token is needed.
 
 1. Install and enable **BRAT** from Community plugins.
-2. Create a GitHub personal access token with read access to this repo:
-   - Fine-grained: [github.com/settings/personal-access-tokens/new](https://github.com/settings/personal-access-tokens/new),
-     scope it to `obsidian-html-reader-plus`, and grant *Contents: Read-only*.
-   - Classic tokens work too, with the `repo` scope.
-3. In Obsidian: **Settings → BRAT → Personal access token**, paste it in.
-4. **Settings → BRAT → Beta plugin list → Add beta plugin**, enter:
+2. **Settings → BRAT → Beta plugin list → Add beta plugin**, enter:
 
        bellicose100xp/obsidian-html-reader-plus
 
    Leave the version blank to track the latest release.
-5. Enable **HTML Reader Plus** in Community plugins, and disable HTML Reader if it is
+3. Enable **HTML Reader Plus** in Community plugins, and disable HTML Reader if it is
    installed. Both claim `.html`, so only run one.
 
 BRAT reads `main.js` and `manifest.json` from a GitHub **release**, not from the repo tree,
