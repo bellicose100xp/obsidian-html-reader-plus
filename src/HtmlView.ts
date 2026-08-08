@@ -503,11 +503,29 @@ async function modifyAnchorTarget( doc: HTMLDocument ): Promise<void> {
 	}
 }
 
+// Apply the zoom level to the rendered document.
+//
+// A transform on <html> makes it the containing block for its descendants, which turns
+// 'position: fixed' into something that behaves like 'position: absolute': fixed sidebars
+// and floating back-to-top buttons scroll away with the content instead of staying put.
+// At the default zoom the transform is pure overhead, so leave it off entirely and let
+// fixed elements resolve against the viewport the way they do in a browser.
+function applyZoom( doc: HTMLDocument, zoomValue: number ) {
+	const root = doc.all[0] as HTMLElement;
+	if( zoomValue === 1 ) {
+		root.style.removeProperty( 'transform' );
+		root.style.removeProperty( 'transform-origin' );
+		return;
+	}
+
+	root.style.transformOrigin = "left top"; // CSS transform-origin
+	root.style.transform = `scale(${zoomValue})`;
+}
+
 async function restoreStateBySettings( doc: HTMLDocument, settings: HtmlPluginSettings ): Promise<void> {
 	// all[0] ==> <html>
-	doc.all[0].style.transformOrigin = "left top"; // CSS transform-origin
-	doc.all[0].style.transform = `scale(${settings.zoomValue})`;
-	
+	applyZoom( doc, settings.zoomValue );
+
 	if( settings.bgColorEnabled ) {
 		doc.body.setAttribute( "bgColor", settings.bgColor );
 		doc.body.style.backgroundColor = settings.bgColor;
@@ -840,7 +858,7 @@ async function buildUserInteractiveFacilities( mainView: HTMLElement ): Promise<
 	};
 	mainView.ZoomIn = () => {
 		settings.zoomValue = NP.plus( settings.zoomValue, 0.1 );
-		iframeDoc.all[0].style.transform = `scale(${settings.zoomValue})`;
+		applyZoom( iframeDoc, settings.zoomValue );
 		iframe.contentWindow.focus();
 	};
 	mainView.ZoomOut = () => {
@@ -848,12 +866,12 @@ async function buildUserInteractiveFacilities( mainView: HTMLElement ): Promise<
 		if( scaleValue <= 0.1 )
 			scaleValue = 0.1;
 		settings.zoomValue = scaleValue;
-		iframeDoc.all[0].style.transform = `scale(${settings.zoomValue})`;
+		applyZoom( iframeDoc, settings.zoomValue );
 		iframe.contentWindow.focus();
 	};
 	mainView.ResetZoom = () => {
 		settings.zoomValue = 1.0;
-		iframeDoc.all[0].style.transform = `scale(${settings.zoomValue})`;
+		applyZoom( iframeDoc, settings.zoomValue );
 		iframe.contentWindow.focus();
 	};
 	

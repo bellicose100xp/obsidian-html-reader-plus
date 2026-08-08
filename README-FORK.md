@@ -45,3 +45,18 @@ mappings cannot apply without reimplementing motions against the rendered docume
 
 `npm run build` also runs `tsc`, which fails on pre-existing upstream type errors unrelated
 to these changes.
+
+## Fixed sidebars and floating buttons stay put
+
+Upstream always set `transform: scale(...)` on `<html>` to apply the zoom level, including
+at the default zoom of 1.0 where it does nothing visible. A transform makes that element
+the containing block for its descendants, so `position: fixed` resolves against `<html>`
+rather than the viewport and behaves like `position: absolute`. Fixed sidebars and floating
+back-to-top buttons scrolled away with the content instead of staying anchored.
+
+The zoom is now skipped entirely at 1.0 and the transform properties are removed, so fixed
+elements resolve against the viewport the way they do in a browser. Zooming still works,
+and returning to 1.0 restores fixed positioning.
+
+Note that a zoom other than 1.0 reintroduces the containing block, so fixed elements will
+drift again while zoomed. That is inherent to implementing zoom with a transform.
