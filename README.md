@@ -1,195 +1,134 @@
-# Obsidian HTML reader Plugin
+# HTML Reader Plus
 
-This is a plugin for Obsidian (https://obsidian.md). Can open document with `.html`  and `.htm` file extensions.
+An Obsidian plugin for reading `.html` and `.htm` files. Fork of
+[HTML Reader](https://github.com/nuthrash/obsidian-html-plugin) v1.0.15.
 
-- [How to use](#how-to-use)
-- [Install this plugin from Obsidian](#install-this-plugin-from-obsidian)
-- [Manually installing the plugin](#manually-installing-the-plugin)
-- [HTML Reader Settings](#html-reader-settings)
-  - [General Settings](#general-settings)
-  - [Hotkeys and Touch Gestures Settings](#hotkeys-and-touch-gestures-settings)
-- [More Options](#more-options)
-- [How to build this plugin from source code](#how-to-build-this-plugin-from-source-code)
-- [Known issues](#known-issues)
+The goal is to render a file exactly as a browser would, and to keep Obsidian itself
+behaving normally while you are looking at one.
 
-## How to use
+## What is different from upstream
 
-1. Put .html or .htm files to any obsidian-html-plugin installed vault folder
-2. Click any HTML or HTM item to open it
-3. Reading
+### Files render as written
 
-## Install this plugin from Obsidian
+Upstream shipped five operating modes, four of which sanitized the file to some degree,
+stripping scripts, attributes, and whole elements. This fork keeps only the faithful path:
+no sanitizing, no script stripping, no injected CSP, no forced background color. The only
+change made to a file is a `<base href>` so relative links and images resolve against the
+file's own folder.
 
-1. Head to ⚙"Settings" ⇨ "Community plugins" options page, make sure "Restricted mode" is turned off.
-2. Click `Browse` button to open Community plugins browsing dialog.
-3. Search for this plugin "**HTML Reader**" and click the corresponding result item.
-4. Click `Install` button to install this plugin.
-5. Once installed, click `Enable` button to enable this plugin.
-6. Or, enable this plugin "**HTML Reader**" from the "Installed plugins" list of "Community plugins" options page.
+That means **scripts in the files you open will run**. Every mode that prevented that is
+gone, along with the mode setting itself. Only open files you trust.
 
-## Manually installing the plugin
+### Sticky page headers stay pinned
 
-1. Copy the `main.js` and `manifest.json` files from [Releases list](https://github.com/nuthrash/obsidian-html-plugin/releases) to your vault `<path>/<to>/<vaultFolder>/.obsidian/plugins/obsidian-html-plugin/`.
-2. Relaunch Obsidian.
-3. Head to ⚙"Settings" ⇨ "Community plugins" options page, make sure "Restricted mode" is turned off and enable this plugin "**HTML Reader**" from the "Installed plugins" list of "Community plugins" options page.
+Upstream set `overflow-y: auto` on the rendered document's `<body>`, making it a scroll
+container. Elements using `position: sticky` still resolve against the iframe viewport, so
+a page's anchored top bar scrolled away instead of staying put.
 
-## HTML Reader Settings
+The horizontal clamp now uses `overflow-x: clip` instead of `hidden`. Both clip the same
+way, but `clip` does not create a scroll container, so `<body>` stays out of the way and the
+iframe viewport remains the scrollport that sticky resolves against. Wide content is still
+kept from scrolling sideways.
 
-1. Head to ⚙"Settings" ⇨ "Community plugins" options page, find the settings icon ⚙ of "**HTML Reader**" item, then click it.
-2. Or, Head to ⚙"Settings" ⇨ click "**HTML Reader**" item on the bottom of left panel under the "Community plugins" group after enabled it.
+### Fixed sidebars and floating buttons stay put
 
-![HtmlReaderSettings1.jpg](./assets/images/screenshots/HtmlReaderSettings1.jpg "HTML Reader Setting part1") 
+Upstream always set `transform: scale(...)` on `<html>` to apply the zoom level, including
+at the default zoom of 1.0 where it changes nothing visible. A transform makes that element
+the containing block for its descendants, so `position: fixed` resolves against `<html>`
+rather than the viewport and behaves like `position: absolute`. Fixed sidebars and floating
+back-to-top buttons drifted with the content instead of staying anchored.
 
-### General Settings
+The zoom is now skipped entirely at 1.0. Zooming still works, and returning to 1.0 restores
+fixed positioning.
 
-#### Operating Mode
+Note that any zoom other than 1.0 reintroduces the containing block, so fixed elements will
+drift again while zoomed. That is inherent to implementing zoom with a transform.
 
-Set Operating Mode for this plugin to protect user and app.
+### Obsidian hotkeys keep working inside rendered files
 
-##### Comparsion
+Most shortcuts already worked through upstream's bubble-phase event re-dispatch. The gap was
+pages that run their own scripts and call `stopImmediatePropagation()` on `keydown` during
+the capture phase: that killed the event before Obsidian's keymap saw it, so every shortcut
+went dead while such a file was open.
 
-|                          | Images | Styles  | Scripting             | DSD<sup>*</sup>  | CSP<sup>#</sup> | HTML Sanitization | Isolated |
-|         ---:             | :---:  | :---:   | :---:                 | :---:            | :---: | :---: | :---: |
-| **Text Mode**            | No     | No      | No                    | Yes              | Yes | Yes | Yes |
-| **High Restricted Mode** | Yes<sup>[1]</sup> | Partial | No         | Yes              | Yes | Yes | Yes |
-| **Balance Mode**         | Yes    | Yes     | No                    | Yes              | Yes | Yes | Yes |
-| **Low Restricted Mode**  | Yes    | Yes     | Partial<sup>[2]</sup> | Yes              | No  | No  | Yes |
-| **Unrestricted Mode**    | Yes    | Yes     | Yes<sup>[3]</sup>     | Yes              | No  | No  | Yes |
+Registering another capture listener does not help, because the page's listener is
+registered first and `stopImmediatePropagation()` drops the rest on the same target and
+phase. So keyboard events are made unstoppable inside the iframe realm and a copy is
+forwarded to `app.keymap.onKeyEvent()`, the same entry point Obsidian uses for webviews.
 
-*: [Declarative Shadow DOM](https://web.dev/declarative-shadow-dom/) <br />
-#: [Content Security Policy](https://en.wikipedia.org/wiki/Content_Security_Policy) <br />
-[1]: The external image sources would be blocked by CSP.<br />
-[2]: The script codes inside `<script>` and external script files are still not executable. <br />
-[3]: The external script files may not executable due to Obsidian's limitation. <br />
+- only `KeyboardEvent` is affected, mouse and touch handling is untouched
+- keystrokes in a page's own `input`, `textarea`, `select`, or `contenteditable` are left
+  alone, so typing in an embedded search box does not fire single-key hotkeys
+- the page's own key handlers still run
 
-<details>
-<summary><h5>Detail Explanation</h5></summary>
+### Settings reduced to one option
 
-1. **Text Mode** - Highly recommended for the files came from untrusted source! This mode almost sanitized all visual effects, script codes, and styles out. eanwhile, it keeps text parts for reading the content of HTML files with HTML layout elements.
-2. **High Restricted Mode** - This mode recommended for the user who wants more security. It would keep custom elements but sanitize unsafe HTML elements out, as well as unsafe attributes and their contents. The external image sources would be blocked by CSP, and the images are only available from the HTML files themselves.
-3. **Balance Mode** - This mode is the default mode for this plugin. It would keep all custom elements and HTML elements, but sanitize unsafe attributes and their contents out.
-4. **Low Restricted Mode** - This mode would not sanitize anything, all elements and their content would be keeped. The script codes inside `<script>` still not executable, nor the external script files.
-5. **Unrestricted Mode** - This mode is <ins> **very dangerous** and may cause the Obsidian app crash, **THE OBSIDIAN AND THIS PLUGIN CANNOT ASSUME RESPONSIBILITY OR LIABILITY FOR SWITCHING TO THIS MODE** </ins>. It would not sanitize anything, all elements and their content would be keeped. The Obsidian app itself might adjust something. The external script files may not executable due to Obsidian's limitation. Strongly recommended not switching to this mode for normal usage.
+Everything else was either a mode that no longer exists or a default that never needed
+changing, so the settings tab is down to the zoom gesture toggle. Hotkeys come from
+Obsidian's own hotkey settings. Dropped along the way: operating mode, background color
+override, extra file extensions, and MHTML support (`.mht` / `.mhtml` files are no longer
+opened).
 
-    If you encounter troubles after switch to this mode, it is recommended to take these recovery steps:
-    - Turn back to previous file which can open normally.
-    - <ins>Delete or move the bad opened file to trash can. Otherwise, Obsidian would still open it after re-launched</ins>.
-    - Return to this settings page to switch another Operating Mode.
-  
-    Sometimes you still cannot see what you want, then you should check the content of HTML file. This mode is just leave the content alone (only <ins>adjust the external link anchor tags to let them open in default browser windows</ins>), but the file might has some self-contained security protection facilities (such as CSP) and they would block something to avoid XSS attacks. If you find something like `<meta http-equiv="Content-Security-Policy" />` inside the HTML file, it means the file is protected by CSP mechanism. You might
-    - Modify or remove the CSP `<meta>` tag by hands.
-    - Change the capture settings of the original web page saving app to disable CSP or something else, and re-save the web page.
+### Not fixed: Vim keybindings
 
-</details>
-<details>
-<summary><h5>Terms Explanation</h5></summary>
-	
-This section would try to explain some terms used by Operating Mode more detail. You can ignore some terms without bold font face (they are technical terms).
+`obsidian-vimrc-support` reaches the editor through `view.editMode?.editor?.cm?.cm`, which
+only exists on a MarkdownView. An HTML view has no CodeMirror instance, so `.vimrc` mappings
+cannot apply without reimplementing motions against the rendered document.
 
-1. **Style**s - It means HTML [CSS](https://en.wikipedia.org/wiki/CSS) styles. They are almost safe to use, but CSS Injection or CSS Keylogger would steal something, so some <ins> user [interactive elements](https://html.spec.whatwg.org/multipage/interactive-elements.html) would be disabled at **Balance Mode** and **High Restricted Mode** </ins>.
-2. **Scripting** - It means [Javascript](https://en.wikipedia.org/wiki/Javascript) and very dangerous. Even some script codes would executable at **Low Restricted Mode** and **Unrestricted Mode**, this does not mean they can work very well. More complex of script codes, less chances they can work normally. <ins>If you want the script codes work as you wish, you shall rewrite them and related modules to satisfy Obsidian platform</ins>, because there are many different aspects between Obsidian platform and normal browsers.
-3. **DSD** - It means [Declarative Shadow DOM](https://web.dev/declarative-shadow-dom/).
-4. **CSP** - It means [Content Security Policy](https://en.wikipedia.org/wiki/Content_Security_Policy). It provides some “binding operational directives” to tell Obsidian how to treat some resources. Its rules are different with others used by normal browsers and websites, the `'self'` setting is almost meaningless for Obsidian.
-5. **HTML Sanitization** - This mechanism would physically sanitize unsafe content out when loading HTML files, and there are different configurations among three modes. The sanitization configurations are progressive and may change with version iteration. If you think some tags or attributes shall not be sanitized, you can create a new issue in [Issues page](https://github.com/nuthrash/obsidian-html-plugin/issues) to let me know.
-6. **Isolated** - The CSS styles of HTML files shall be isolated against with other parts of Obsidian, otherwise the Obsidian's layouts might be disarranged or font faces might become ugly. The disadvantages of CSS isolation might cause some CSS effects lost, such as `:target` pseudo-class event would never be fired. You can get more details from the [CSS Isolation](https://github.com/nuthrash/obsidian-html-plugin/wiki/CSS-Isolation) wiki page.
-7. [Custom Element](https://developer.mozilla.org/docs/Web/Web_Components/Using_custom_elements) - It means the HTML tags look like `<xxx-yyy>` and they are often incorporated with related javascript codes. Therefore, when the scripting is disallowed, the custom HTML tags are almost useless and would act as pure containers.
+## Installing with BRAT
 
-</details>
+[BRAT](https://github.com/TfTHacker/obsidian42-brat) installs plugins straight from a GitHub
+repo and can keep them updated. Because this repo is **private**, BRAT needs a token before
+it can see it.
 
-<br />
+1. Install and enable **BRAT** from Community plugins.
+2. Create a GitHub personal access token with read access to this repo:
+   - Fine-grained: [github.com/settings/personal-access-tokens/new](https://github.com/settings/personal-access-tokens/new),
+     scope it to `obsidian-html-reader-plus`, and grant *Contents: Read-only*.
+   - Classic tokens work too, with the `repo` scope.
+3. In Obsidian: **Settings → BRAT → Personal access token**, paste it in.
+4. **Settings → BRAT → Beta plugin list → Add beta plugin**, enter:
 
-#### Background Color
-Set HTML &lt;body&gt; element background color forcely.
+       bellicose100xp/obsidian-html-reader-plus
 
-#### Extra File Extensions
-Open HTML format files with user defined file extensions (list of comma separated strings). Change this setting may cause other plugins un-workable, so you shall know very clearly what you are doing. Remember to relaunch the Obsidian app after change this setting!
+   Leave the version blank to track the latest release.
+5. Enable **HTML Reader Plus** in Community plugins, and disable HTML Reader if it is
+   installed. Both claim `.html`, so only run one.
 
-#### MHTML File Format Support
-Support with MHTML file format (.mht and .mhtml). Enable this option would convert the MHTML file format to HTML file format on the fly while opening the MHTML file each time. Therefore it would waste time on converting MHTML content! This option would override the 'Extra File Extensions' setting, and it also might cause other plugins un-workable. Remember to relaunch the Obsidian app after change this setting. <br>
-**NOTE1:** It is preferred to convert MHTML files to HTML files outside this plugin, then save back the converted HTML files to vault(s). It would save much computing time of the converting procedure when you have to open these MHTML files in a high frequency. <br>
-**NOTE2:** These two converter tools may help you.
-  1. **mhtml-to-html**: https://github.com/gildas-lormeau/mhtml-to-html, this project contains command line applications and library, and you can download it from [Releases](https://github.com/gildas-lormeau/mhtml-to-html/releases). By the way, this plugin also use this library to convert MHTML files.
-  2. **Mhtml Wizard**: https://erwannlc.github.io/mhtml-wizard/, this web app can convert MHTML file(s) online.
+BRAT reads `main.js` and `manifest.json` from a GitHub **release**, not from the repo tree,
+so a plain `git push` will not update anything on its own. Cut a release for each version you
+want to roll out (see below).
 
-### Hotkeys and touch gestures settings
-Almost all keyboard hotkeys are taken from Obsidian's global hotkey settings, so you shall modify them via ⚙"Settings" ⇨ "Hotkeys" options page. <br>
-That means this plugin does not design any new configuration interface for keyboard hotkeys. And it just show the first two settings of corresponding hotkeys with readonly mode.
+To pick up new versions, use *Check for updates to all beta plugins*, or enable auto-update
+on startup in BRAT's settings. Auto-update means whatever is in the newest release lands in
+your vault, so only release commits you have actually tested.
 
-#### Search document text
-Search current file.
-#### Zoom in document
-Zoom in current file.
-#### Zoom out document
-Zoom out current file.
-#### Reset document zoom
-Reset current file zoom.
-#### Quick document zoom in and out
-Zoom the document using Ctrl + Wheel (zoom in: ↑, zoom out: ↓), or using the trackpad/touch screen/touch panel two-finger pinch-zoom gesture (zoom in: ← →, zoom out: → ←).
+## Installing manually
 
+Copy `main.js` and `manifest.json` into
+`<vault>/.obsidian/plugins/obsidian-html-reader-plus/`, then enable the plugin. Reload
+Obsidian if it does not appear.
 
-## More options
-After a HTML file opened, the three dots ⋮ "more options" menu icon on right-upper corner of tab would be added some menu items.
+## Building
 
-![MoreOptions1.jpg](./assets/images/screenshots/MoreOptions1.jpg "More Options part1")
- 
-### Find...
-Open search bar.
-### Zoom in
-Zoom in current file.
-### Zoom out
-Zoom out current file.
-### Reset zoom
-Reset current file zoom.
+    npm install
+    node esbuild.config.mjs production
 
+Use esbuild directly. `npm run build` also runs `tsc`, which fails on type errors that were
+already present upstream and are unrelated to these changes.
 
-## How to build this plugin from source code
+## Cutting a release for BRAT
 
-1. Clone this project to your system.
-2. Under the local project folder, key the command `npm i` to install necessary packages.(You need Node.js installed on your development environment)
-3. Then run `npm run dev` would build the plugin files.
+`main.js` is deliberately gitignored, since the built bundle belongs in release assets
+rather than the repo tree. Bump the version in `manifest.json` and `package.json` to match
+the tag, then:
 
-## Known issues
+    node esbuild.config.mjs production
+    gh release create 1.0.16 main.js manifest.json --title 1.0.16 --notes "what changed"
 
-- Cannot see local image files like `<img src="./image1.jpg" />` or `<img src="file:///C:/image1.jpg" />`
-  - This is Obsidian's constraint, it disallow to directly access local files through HTML code.
-  - One of the possible remedy ways is re-save the HTML file as a complete HTML file by dedicated browser extensions such as "[SingleFile](https://github.com/gildas-lormeau/SingleFile)", it can save a complete page (with CSS, images, fonts, frames, etc.) as a single HTML file. After got the complete HTML file, put it to obsidian-html-plugin installed vault folder then open it, you would see all images.
-  - <s> Another remedy way is add `app://local/` or `app://local//` prefix string to `src` attribute by hands(refer to "[Allow embed of Local images using `![](file:///...)`](https://forum.obsidian.md/t/allow-embed-of-local-images-using-file/1990/4)"). </s> (USELESS)
-  - From Obsidian v1.8+, it support some HTML tags with `src` relative paths for Markdown(.md) format documents. But it still disallowed to load any local resources for HTML(.html) documents. 
+The tag and `manifest.json`'s `version` must match, or BRAT will not see the release.
 
-- After some .html files were opened, they look like blank pages and cannot see original contents.
-  - In fact, currently (after 1.0.13), this plugin can handle only some kinds of HTML files:
-    1. Standard [HTML5](https://html.spec.whatwg.org/) files
-    2. Compressed HTML-like files made by [SingleFileZ](https://github.com/gildas-lormeau/SingleFileZ)
-	3. MHTML format files (after enabled 'MHTML File Format Supported' setting, converting by [mhtml-to-html](https://github.com/gildas-lormeau/mhtml-to-html))
-  - Therefore, when open unsupported file format, this plugin would notice related messages or show an almost blank page.
-  - "open document with `.html`  and `.htm` file extensions" is the description written for end-users without technical background. It doesn't mean this plugin can open all kinds of files with .html or .htm file extensions, especially when the file actually is other document type but renamed to .html or .htm file extension.
-  - If you want to open an ePub file, you shall install "ePub Reader" plugin to open it, instead rename it to xxx.html then ask why this plugin cannot open it.
+## Credit
 
-- Some HTML elements disappeared
-  - That might be caused by:
-    1. Removed by HTML Sanitization mechanism
-    2. Hide or become invisible
-  - You could try to switch [Operating Mode](#operating-mode) to different modes to see if the disappeared HTML elements become visibile. If YES, you could create a new issue in [Issues page](https://github.com/nuthrash/obsidian-html-plugin/issues) to let me know, and I will discuss it with you.
-  - If you still cannot see the disappeared HTML elements after switching to less restricted modes, that means they were hide or became invisible. This situation often occurs when the HTML element use some advanced features like "[Declarative Shadow DOM](https://web.dev/declarative-shadow-dom/)" (this feature has been supported after verion 1.0.4) and this plugin or Obsidian not supported yet. Then, you could create a new issue in [Issues page](https://github.com/nuthrash/obsidian-html-plugin/issues) to let me know, and I will discuss it with you.
-
-- Almost all script codes cannot work
-  - That might be caused by:
-    1. Blocked by HTML loading procedure
-    2. Removed by HTML Sanitization mechanism
-  - Obsidian's developer team is very concern about XSS attacks, so they want plugin developers follow this [tip](https://github.com/obsidianmd/obsidian-releases/blob/master/plugin-review.md#avoid-innerhtml-outerhtml-and-insertadjacenthtml) to prevent XSS attacks. Therefore, almost all script codes resident inside `<script>` in the HTML file would be blocked, and the external script files are the same.
-  - Meanwhile, HTML Sanitization mechanism would sanitize potential XSS code more deeper. So, the code such as `<... onload="alert(1)">` would be removed.
-  - Therefore, you could switch to [less restricted modes](#operating-mode) to see if they work or not.
-
-- Cannot zoom in or out by mouse wheel on mobile platforms
-  - It seems the Obsidian app block something on mobile platforms, so these actions would not work normally.
-  - You could use two-finger pinch-zoom gesture on the touch screen to zoom in or out.
-  - You could use the "[more options](#more-options)" menu items to zoom in or out.
-
-- The zoom related hotkey settings are disappeared on mobile platforms
-  - The mobile version of Obsidian does not provide these settings, so this plugin also not provide them.
-  
-- The presentation style of search results is different with Markdown documents
-  - There are lots tags/elements inside HTML files, and some search results would across tags and overlap with each others. Therefore, this plugin use the block mark style (highlight with background color) instead of outline style.
-
-- Cannot open some files in vault by `<a>` tags
-  - It seems the Obsidian app block some kinds of hyperlinks, e.g.: `<a href="file:///...">`
+Original plugin by [Nuthrash](https://github.com/nuthrash/obsidian-html-plugin), MIT
+licensed. This fork keeps that license.
