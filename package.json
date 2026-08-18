@@ -1,6 +1,6 @@
 {
 	"name": "obsidian-html-reader-plus",
-	"version": "1.0.17",
+	"version": "1.0.18",
 	"description": "Read \".html\" and \".htm\" files. Fork of HTML Reader that keeps sticky page headers pinned and keeps Obsidian hotkeys working inside rendered files.",
 	"main": "main.js",
 	"scripts": {
