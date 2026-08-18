@@ -82,6 +82,7 @@ export class HtmlView extends FileView {
 					iframe.dispatchEvent( new evt.constructor(evt.type, evt) );
 				}, false );
 
+				installObsidianDomExtensions( iframe );
 				forwardHotkeysToObsidian( iframe );
 			};
 			
@@ -218,6 +219,44 @@ function sdFixAnchorClickHandler( evt ) {
 	}
 	
 	evt.preventDefault();
+}
+
+// Give the iframe realm the DOM prototype helpers Obsidian expects on every element.
+//
+// Obsidian's enhance layer adds Node.instanceOf(), Element.hasClass(), and the
+// doc/win/constructorWin accessors to the windows it manages (the main window and
+// pop-outs), and core code calls them on any element it touches. The iframe is a
+// realm Obsidian doesn't manage, yet its elements do reach core code: when a modal
+// opens while focus is inside the iframe, Modal.open() stores
+// iframe.contentDocument.activeElement for focus restore, and Modal.close() calls
+// focusEl.instanceOf(HTMLElement) on it. Without these helpers that call throws,
+// killing the rest of the close handler — picking a file in the Quick Switcher
+// dismissed the modal but never opened the chosen file. The definitions mirror
+// enhance.js, including instanceOf's resolve-by-class-name across realms.
+function installObsidianDomExtensions( iframe: any ) {
+	const frameWin = iframe.contentWindow;
+	if( !frameWin || frameWin.Node.prototype.instanceOf )
+		return;
+
+	const nodeProto = frameWin.Node.prototype;
+	Object.defineProperty( nodeProto, 'doc', {
+		configurable: true,
+		get: function() { return this.ownerDocument || frameWin.document; },
+	} );
+	Object.defineProperty( nodeProto, 'win', {
+		configurable: true,
+		get: function() { return this.doc.defaultView || frameWin; },
+	} );
+	nodeProto.constructorWin = frameWin;
+	nodeProto.instanceOf = function( cls: any ) {
+		if( this instanceof cls )
+			return true;
+		let own = this.win[cls.name];
+		return !!(own && this instanceof own) || !!((own = this.constructorWin[cls.name]) && this instanceof own);
+	};
+	frameWin.Element.prototype.hasClass = function( cls: string ) {
+		return this.classList.contains( cls );
+	};
 }
 
 // Hand every keystroke that happens inside the iframe to Obsidian's hotkey manager.
