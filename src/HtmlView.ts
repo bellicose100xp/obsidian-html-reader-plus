@@ -15,9 +15,28 @@ export class HtmlView extends FileView {
 	settings: HtmlPluginSettings;
 	mainView!: HTMLElement;
 
+	// Scroll offset to put back after a reload triggered by the file changing on disk.
+	private pendingScroll: { x: number, y: number } | null = null;
+
 	constructor(leaf: WorkspaceLeaf, private settings: HtmlPluginSettings) {
 		super(leaf);
 		this.settings = settings;
+	}
+
+	onload(): void {
+		super.onload();
+
+		// Re-render when the open file changes on disk, the way Markdown views do.
+		// Obsidian fires 'modify' for edits made inside the app and for external
+		// writes picked up by its file watcher. registerEvent ties the listener to
+		// this view's lifetime, so it goes away when the tab closes.
+		this.registerEvent( this.app.vault.on( 'modify', (changed) => {
+			if( !this.file || changed.path !== this.file.path )
+				return;
+			const win = this.mainView?.iframe?.contentWindow;
+			this.pendingScroll = win ? { x: win.scrollX, y: win.scrollY } : null;
+			this.onLoadFile( this.file );
+		} ) );
 	}
   
 	async onLoadFile(file: TFile): Promise<void> {
@@ -68,6 +87,7 @@ export class HtmlView extends FileView {
 			this.mainView.settings = this.settings;
 			this.mainView.searchBar = searchBar;
 			this.mainView.iframe = iframe;
+			const self = this;
 			iframe.onload = async function() {
 				// fix some behaviors for consistency with Shadow DOM and Obsidian
 				applyUserInteractivePatches( iframe.contentDocument );
@@ -84,6 +104,11 @@ export class HtmlView extends FileView {
 
 				installObsidianDomExtensions( iframe );
 				forwardHotkeysToObsidian( iframe );
+
+				if( self.pendingScroll ) {
+					iframe.contentWindow.scrollTo( self.pendingScroll.x, self.pendingScroll.y );
+					self.pendingScroll = null;
+				}
 			};
 			
 			dispatchEvent(new CustomEvent("DOMContentLoaded"));
