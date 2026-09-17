@@ -61,19 +61,61 @@ forwarded to `app.keymap.onKeyEvent()`, the same entry point Obsidian uses for w
   alone, so typing in an embedded search box does not fire single-key hotkeys
 - the page's own key handlers still run
 
-### Settings reduced to one option
+### Settings reduced to two options
 
 Everything else was either a mode that no longer exists or a default that never needed
-changing, so the settings tab is down to the zoom gesture toggle. Hotkeys come from
+changing, so the settings tab is down to the zoom gesture toggle and the vim navigation toggle. Hotkeys come from
 Obsidian's own hotkey settings. Dropped along the way: operating mode, background color
 override, extra file extensions, and MHTML support (`.mht` / `.mhtml` files are no longer
 opened).
 
-### Not fixed: Vim keybindings
+### Vim navigation keys
 
 `obsidian-vimrc-support` reaches the editor through `view.editMode?.editor?.cm?.cm`, which
-only exists on a MarkdownView. An HTML view has no CodeMirror instance, so `.vimrc` mappings
-cannot apply without reimplementing motions against the rendered document.
+only exists on a MarkdownView. An HTML view has no CodeMirror instance, so that plugin cannot
+touch it. This fork carries its own normal-mode key engine for rendered files instead, and it
+reads the same `.obsidian.vimrc` so one config drives both kinds of view.
+
+Built in, with counts (`10j`, `3<C-d>`):
+
+| Keys | Action |
+|---|---|
+| `j` `k` `<C-e>` `<C-y>` | scroll one line |
+| `h` `l` | scroll sideways |
+| `<C-d>` `<C-u>` `J` `K` | half a page |
+| `<C-f>` `<C-b>` | a full page |
+| `gg` `G` | top and bottom of the page |
+| `0` `^` `$` | left and right edge |
+| `/` `n` `N` | open the find bar, next and previous match |
+| `zz` `zt` `zb` | accepted and ignored, so `10jzz` style mappings still work |
+
+From the vimrc it reads `exmap <name> obcommand <id>`, the normal-mode `map` family
+(`map`, `noremap`, `nmap`, `nnoremap`), `unmap` and `nunmap`, `let mapleader`, and `source`.
+A mapping's right-hand side must be either `:<exmap-name><CR>` or `:obcommand <id><CR>`,
+which runs that Obsidian command, or a chain of the built-in motions above such as `10jzz`
+or `^`. Anything that needs a cursor or edits text (`y$`, `<C-q>`, mark and register tricks)
+is skipped, since a rendered page has nothing for it to act on. In practice that means
+`nnoremap <Space>f :switchfiles<CR>` opens the quick switcher from an HTML file and
+`nnoremap J 10jzz` scrolls ten lines, while visual-mode and insert-mode lines are ignored.
+
+A line written as a comment with an `html:` prefix applies only to rendered HTML files, so a
+key can mean one thing in the Markdown editor and another here. vimrc-support skips comment
+lines, so nothing else sees it:
+
+    nnoremap J 10jzz
+    " html: nnoremap J <C-d>
+
+Multi-key sequences wait one second for the next key, matching Vim's `timeoutlen`. Keys typed
+in a page's own `input`, `textarea`, `select`, or `contenteditable` are left alone, Space and
+Enter stay with a focused button or link, and a page that calls `preventDefault()` on a
+keydown keeps that key for itself. Arrow and Page keys are deliberately untouched so the
+browser keeps scrolling whichever nested block has focus. If the document
+does not scroll, the largest scrollable element in the page is scrolled instead, which covers
+layouts that put the content in a fixed-height wrapper.
+
+The vimrc is re-read when a file is opened, and an open view notices edits to it within a
+couple of seconds of the next keystroke. The feature is on by default and has a toggle in
+settings.
 
 ## Installing with BRAT
 

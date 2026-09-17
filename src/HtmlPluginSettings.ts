@@ -4,11 +4,13 @@ import HtmlPlugin from "./HtmlPlugin";
 export interface HtmlPluginSettings {
 	zoomByWheelAndGesture: boolean;
 	zoomValue: number;
+	vimNavigation: boolean;
 }
 
 export const DEFAULT_SETTINGS: HtmlPluginSettings = {
 	zoomByWheelAndGesture: true,
 	zoomValue: 1.0,
+	vimNavigation: true,
 }
 
 export class HtmlSettingTab extends PluginSettingTab {
@@ -33,6 +35,18 @@ export class HtmlSettingTab extends PluginSettingTab {
 					.setValue(this.plugin.settings.zoomByWheelAndGesture)
 					.onChange( async (enabled: boolean) => {
 						this.plugin.settings.zoomByWheelAndGesture = enabled;
+						await this.plugin.saveSettings();
+					});
+			});
+
+		new Setting(containerEl)
+			.setName( 'Vim navigation keys' )
+			.setDesc( 'Scroll rendered files with j, k, gg, G, Ctrl+D and Ctrl+U, open search with / and step through matches with n and N. Normal-mode mappings in your .obsidian.vimrc also apply when they run an Obsidian command (exmap ... obcommand) or chain these motions. Edits to the vimrc are picked up while a file is open.' )
+			.addToggle( (toggle) => {
+				toggle
+					.setValue(this.plugin.settings.vimNavigation)
+					.onChange( async (enabled: boolean) => {
+						this.plugin.settings.vimNavigation = enabled;
 						await this.plugin.saveSettings();
 					});
 			});

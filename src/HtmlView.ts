@@ -1,5 +1,6 @@
 import { WorkspaceLeaf, FileView, TFile, setIcon, Notice } from "obsidian";
 import { HtmlPluginSettings, isMacPlatform, isIosPlatform } from './HtmlPluginSettings';
+import { installVimNavigation, loadVimrcConfig, VimrcConfig } from './VimNavigation';
 
 import { extract } from "single-filez-core/processors/compression/compression-extract.js";
 import * as zip from  '@zip.js/zip.js';
@@ -17,6 +18,13 @@ export class HtmlView extends FileView {
 
 	// Scroll offset to put back after a reload triggered by the file changing on disk.
 	private pendingScroll: { x: number, y: number } | null = null;
+
+	// Removes the host-side vim key listener from the previous render, if any.
+	private disposeVimNavigation: (() => void) | null = null;
+
+	// Bumped on every onLoadFile so an older load that is still awaiting can bail out
+	// instead of rendering a second copy of the page over the newer one.
+	private loadGeneration = 0;
 
 	constructor(leaf: WorkspaceLeaf, private settings: HtmlPluginSettings) {
 		super(leaf);
@@ -37,6 +45,19 @@ export class HtmlView extends FileView {
 			this.pendingScroll = win ? { x: win.scrollX, y: win.scrollY } : null;
 			this.onLoadFile( this.file );
 		} ) );
+
+		// Put keyboard focus inside the rendered page whenever this tab becomes active, so
+		// single-key navigation works right after switching to it. Leave focus alone when it
+		// is deliberately somewhere else (a sidebar search box, a leaf activated with
+		// focus: false).
+		this.registerEvent( this.app.workspace.on( 'active-leaf-change', (leaf) => {
+			if( leaf !== this.leaf )
+				return;
+			const active = document.activeElement;
+			if( active && active !== document.body && !this.containerEl.contains( active ) )
+				return;
+			this.mainView?.iframe?.contentWindow?.focus?.();
+		} ) );
 	}
   
 	async onLoadFile(file: TFile): Promise<void> {
@@ -46,10 +67,19 @@ export class HtmlView extends FileView {
 		// const tocOffset = height < width ? height : 0;
 	
 		this.contentEl.empty();
+		this.disposeVimNavigation?.();
+		this.disposeVimNavigation = null;
+		const generation = ++this.loadGeneration;
 	
 		try {
 			// whole HTML file ArrayBuffer
 			const contents = await this.app.vault.readBinary(file);
+
+			// Re-read the vimrc on every load so mapping changes show up on the next open.
+			const vimrc: VimrcConfig | null = this.settings.vimNavigation ? await loadVimrcConfig( this.app ) : null;
+
+			if( generation !== this.loadGeneration )
+				return; // a newer load took over while we were reading
 			
 			// Obsidian's HTMLElement and Node API: https://github.com/obsidianmd/obsidian-api/blob/master/obsidian.d.ts
 			
@@ -105,6 +135,20 @@ export class HtmlView extends FileView {
 				installObsidianDomExtensions( iframe );
 				forwardHotkeysToObsidian( iframe );
 
+				if( vimrc && generation === self.loadGeneration ) {
+					self.disposeVimNavigation?.();
+					self.disposeVimNavigation = installVimNavigation( {
+						app: self.app,
+						iframe: iframe,
+						containerEl: self.containerEl,
+						isActive: () => self.app.workspace.getActiveViewOfType( HtmlView ) === self,
+						zoom: () => self.settings.zoomValue,
+						openSearch: () => self.mainView.openSearch(),
+						findNext: () => self.mainView.findNext(),
+						findPrev: () => self.mainView.findPrev(),
+					}, vimrc );
+				}
+
 				if( self.pendingScroll ) {
 					iframe.contentWindow.scrollTo( self.pendingScroll.x, self.pendingScroll.y );
 					self.pendingScroll = null;
@@ -119,6 +163,8 @@ export class HtmlView extends FileView {
 	}
 
 	onunload(): void {
+		this.disposeVimNavigation?.();
+		this.disposeVimNavigation = null;
 	}
 	
 	onPaneMenu(menu: Menu, source: 'more-options' | 'tab-header' | string): void {
@@ -325,8 +371,10 @@ function forwardHotkeysToObsidian( iframe: any ) {
 		if( target?.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target?.tagName ?? '') )
 			return;
 
-		// rebuild in the host realm, Obsidian's keymap reads instanceof against its own window
-		keymap.onKeyEvent( new KeyboardEvent('keydown', {
+		// rebuild in the host realm, Obsidian's keymap reads instanceof against its own window.
+		// onKeyEvent returns false once a hotkey handled the key; mark the original as
+		// consumed so the page and the vim navigation layer leave it alone.
+		const handled = keymap.onKeyEvent( new KeyboardEvent('keydown', {
 			key: evt.key,
 			code: evt.code,
 			ctrlKey: evt.ctrlKey,
@@ -337,6 +385,8 @@ function forwardHotkeysToObsidian( iframe: any ) {
 			bubbles: true,
 			cancelable: true,
 		}) );
+		if( handled === false )
+			evt.preventDefault();
 	}, true );
 }
 
@@ -790,6 +840,9 @@ async function buildUserInteractiveFacilities( mainView: HTMLElement ): Promise<
 			(allMatched[curIndex])[0].scrollIntoView( { behavior: 'smooth', block: 'center' } );
 		}
 	};
+	// n / N from vim navigation reuse the search bar's own next and previous handlers
+	mainView.findNext = () => next.click();
+	mainView.findPrev = () => prev.click();
 	mainView.ZoomIn = () => {
 		settings.zoomValue = NP.plus( settings.zoomValue, 0.1 );
 		applyZoom( iframeDoc, settings.zoomValue );
