@@ -5,12 +5,14 @@ export interface HtmlPluginSettings {
 	zoomByWheelAndGesture: boolean;
 	zoomValue: number;
 	vimNavigation: boolean;
+	rememberScrollPosition: boolean;
 }
 
 export const DEFAULT_SETTINGS: HtmlPluginSettings = {
 	zoomByWheelAndGesture: true,
 	zoomValue: 1.0,
 	vimNavigation: true,
+	rememberScrollPosition: true,
 }
 
 export class HtmlSettingTab extends PluginSettingTab {
@@ -47,6 +49,18 @@ export class HtmlSettingTab extends PluginSettingTab {
 					.setValue(this.plugin.settings.vimNavigation)
 					.onChange( async (enabled: boolean) => {
 						this.plugin.settings.vimNavigation = enabled;
+						await this.plugin.saveSettings();
+					});
+			});
+
+		new Setting(containerEl)
+			.setName( 'Remember scroll position' )
+			.setDesc( 'Reopen each file where you left it. Positions are kept in Obsidian\'s local storage for this vault on this machine, outside the vault folder, so a vault kept in git or synced elsewhere never sees them change.' )
+			.addToggle( (toggle) => {
+				toggle
+					.setValue(this.plugin.settings.rememberScrollPosition)
+					.onChange( async (enabled: boolean) => {
+						this.plugin.settings.rememberScrollPosition = enabled;
 						await this.plugin.saveSettings();
 					});
 			});

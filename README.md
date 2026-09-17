@@ -61,10 +61,24 @@ forwarded to `app.keymap.onKeyEvent()`, the same entry point Obsidian uses for w
   alone, so typing in an embedded search box does not fire single-key hotkeys
 - the page's own key handlers still run
 
-### Settings reduced to two options
+### Files reopen where you left off
+
+Each HTML file reopens at the spot you last scrolled to, whether you switched tabs, closed
+the tab, or restarted Obsidian. The position is saved a moment after each scroll and again
+when the file is swapped out, and it follows the file through renames. Scrolling back to the
+very top forgets the entry. Pages that scroll a nested wrapper instead of the document are
+handled too.
+
+Positions live in Obsidian's local storage for this vault on this machine, outside the vault
+folder. A vault kept in git or synced by other means never sees them change, so there is
+nothing to ignore and nothing to conflict. The flip side is that each machine keeps its own
+positions. The feature is on by default and has a toggle in settings.
+
+### Settings reduced to three options
 
 Everything else was either a mode that no longer exists or a default that never needed
-changing, so the settings tab is down to the zoom gesture toggle and the vim navigation toggle. Hotkeys come from
+changing, so the settings tab is down to the zoom gesture toggle, the vim navigation toggle,
+and the remembered scroll position toggle. Hotkeys come from
 Obsidian's own hotkey settings. Dropped along the way: operating mode, background color
 override, extra file extensions, and MHTML support (`.mht` / `.mhtml` files are no longer
 opened).

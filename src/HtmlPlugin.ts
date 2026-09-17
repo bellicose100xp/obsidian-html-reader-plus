@@ -1,13 +1,26 @@
-import { addIcon, Plugin, WorkspaceLeaf } from 'obsidian';
+import { addIcon, Plugin, TFile, WorkspaceLeaf } from 'obsidian';
 import { HtmlView, showError, HTML_FILE_EXTENSIONS, ICON_HTML, VIEW_TYPE_HTML } from './HtmlView';
 import { HtmlPluginSettings, HtmlSettingTab, DEFAULT_SETTINGS } from './HtmlPluginSettings';
+import { ScrollMemory } from './ScrollMemory';
 
 // Version bumped to 1.0.17 to verify BRAT picks up new releases. No behavior change.
 export default class HtmlPlugin extends Plugin {
 	settings!: HtmlPluginSettings;
+	scrollMemory!: ScrollMemory;
 	
 	async onload() {
 		await this.loadSettings();
+		this.scrollMemory = new ScrollMemory(this.app);
+
+		// Keep remembered scroll positions attached to files as they move or go away.
+		this.registerEvent(this.app.vault.on('rename', (file, oldPath) => {
+			if (file instanceof TFile)
+				this.scrollMemory.rename(oldPath, file.path);
+		}));
+		this.registerEvent(this.app.vault.on('delete', (file) => {
+			if (file instanceof TFile)
+				this.scrollMemory.remove(file.path);
+		}));
 
 		// Add your own icon: https://marcus.se.net/obsidian-plugin-docs/user-interface/icons#add-your-own-icon
 		/*
@@ -15,7 +28,7 @@ export default class HtmlPlugin extends Plugin {
 		*/
 
 		this.registerView(VIEW_TYPE_HTML, (leaf: WorkspaceLeaf) => {
-			return new HtmlView(leaf, this.settings);
+			return new HtmlView(leaf, this.settings, this.scrollMemory);
 		});
 
 		try {

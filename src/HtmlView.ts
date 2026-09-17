@@ -1,6 +1,7 @@
 import { WorkspaceLeaf, FileView, TFile, setIcon, Notice } from "obsidian";
 import { HtmlPluginSettings, isMacPlatform, isIosPlatform } from './HtmlPluginSettings';
 import { installVimNavigation, loadVimrcConfig, VimrcConfig } from './VimNavigation';
+import { ScrollMemory, applyScroll, captureScroll } from './ScrollMemory';
 
 import { extract } from "single-filez-core/processors/compression/compression-extract.js";
 import * as zip from  '@zip.js/zip.js';
@@ -26,9 +27,40 @@ export class HtmlView extends FileView {
 	// instead of rendering a second copy of the page over the newer one.
 	private loadGeneration = 0;
 
-	constructor(leaf: WorkspaceLeaf, private settings: HtmlPluginSettings) {
+	// Debounce handle for writing the scroll position while the user scrolls.
+	private scrollSaveTimer: number | null = null;
+
+	constructor(leaf: WorkspaceLeaf, private settings: HtmlPluginSettings, private scrollMemory: ScrollMemory) {
 		super(leaf);
 		this.settings = settings;
+	}
+
+	// Write where the current file is scrolled to. Called on a debounce while scrolling
+	// and once more when the file is swapped out or the tab closes.
+	private saveScrollPosition(): void {
+		if( this.scrollSaveTimer !== null ) {
+			window.clearTimeout( this.scrollSaveTimer );
+			this.scrollSaveTimer = null;
+		}
+		if( !this.settings.rememberScrollPosition || !this.file )
+			return;
+		const win = this.mainView?.iframe?.contentWindow;
+		if( !win || !win.document?.body )
+			return;
+		try {
+			this.scrollMemory.set( this.file.path, captureScroll( win, this.settings.zoomValue ) );
+		} catch {
+			// a page torn down mid-scroll has no window to read; nothing to save
+		}
+	}
+
+	private scheduleScrollSave(): void {
+		if( this.scrollSaveTimer !== null )
+			window.clearTimeout( this.scrollSaveTimer );
+		this.scrollSaveTimer = window.setTimeout( () => {
+			this.scrollSaveTimer = null;
+			this.saveScrollPosition();
+		}, 300 );
 	}
 
 	onload(): void {
@@ -43,6 +75,7 @@ export class HtmlView extends FileView {
 				return;
 			const win = this.mainView?.iframe?.contentWindow;
 			this.pendingScroll = win ? { x: win.scrollX, y: win.scrollY } : null;
+			this.saveScrollPosition();
 			this.onLoadFile( this.file );
 		} ) );
 
@@ -152,7 +185,27 @@ export class HtmlView extends FileView {
 				if( self.pendingScroll ) {
 					iframe.contentWindow.scrollTo( self.pendingScroll.x, self.pendingScroll.y );
 					self.pendingScroll = null;
+				} else if( self.settings.rememberScrollPosition && generation === self.loadGeneration ) {
+					const saved = self.scrollMemory.get( file.path );
+					if( saved ) {
+						applyScroll( iframe.contentWindow, saved, self.settings.zoomValue );
+						// Late layout (fonts, images sized after load) can move content under
+						// the restored offset, so apply it once more on the next frame.
+						iframe.contentWindow.requestAnimationFrame( () => {
+							if( generation === self.loadGeneration )
+								applyScroll( iframe.contentWindow, saved, self.settings.zoomValue );
+						} );
+					}
 				}
+
+				// Record the position as the user moves through the page. Scroll events do
+				// not bubble, so listen in the capture phase on the document to also see
+				// nested scroll containers. Installed after the restore above so the
+				// restore itself does not overwrite the saved entry with a stale value.
+				iframe.contentWindow.document.addEventListener( 'scroll', () => {
+					if( generation === self.loadGeneration )
+						self.scheduleScrollSave();
+				}, { capture: true, passive: true } );
 			};
 			
 			dispatchEvent(new CustomEvent("DOMContentLoaded"));
@@ -162,7 +215,13 @@ export class HtmlView extends FileView {
 		}
 	}
 
+	async onUnloadFile(file: TFile): Promise<void> {
+		this.saveScrollPosition();
+		return super.onUnloadFile(file);
+	}
+
 	onunload(): void {
+		this.saveScrollPosition();
 		this.disposeVimNavigation?.();
 		this.disposeVimNavigation = null;
 	}
