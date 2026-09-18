@@ -160,13 +160,17 @@ export class HtmlView extends FileView {
 				await restoreStateBySettings( iframe.contentWindow.document, iframe.mainView.settings );
 				buildUserInteractiveFacilities( iframe.mainView );
 				
-				// bubble iframe's 'keydown' event to parent (issue #16)
-				iframe.contentWindow.addEventListener( 'keydown', (evt) => {
-					iframe.dispatchEvent( new evt.constructor(evt.type, evt) );
-				}, false );
-
 				installObsidianDomExtensions( iframe );
-				forwardHotkeysToObsidian( iframe );
+
+				// Exactly one path carries keys out of the iframe. Feeding app.keymap directly
+				// is preferred; re-dispatching on the iframe element (issue #16) is the fallback
+				// for an Obsidian build without keymap.onKeyEvent. Running both made every
+				// hotkey fire twice.
+				if( !forwardHotkeysToObsidian( iframe ) ) {
+					iframe.contentWindow.addEventListener( 'keydown', (evt) => {
+						iframe.dispatchEvent( new evt.constructor(evt.type, evt) );
+					}, false );
+				}
 
 				if( vimrc && generation === self.loadGeneration ) {
 					self.disposeVimNavigation?.();
@@ -401,14 +405,15 @@ function installObsidianDomExtensions( iframe: any ) {
 // So we make keyboard events unstoppable inside the iframe realm and forward a copy to
 // app.keymap.onKeyEvent(), which is the same entry point Obsidian uses for webviews.
 // Only KeyboardEvent is affected, so a page's mouse and touch handling is left intact.
-function forwardHotkeysToObsidian( iframe: any ) {
+// Returns true when the forwarder is installed, false when keymap.onKeyEvent is unavailable.
+function forwardHotkeysToObsidian( iframe: any ): boolean {
 	const frameWin = iframe.contentWindow;
 	if( !frameWin )
-		return;
+		return false;
 
 	const keymap = iframe.mainView?.app?.keymap;
 	if( !keymap?.onKeyEvent )
-		return;
+		return false;
 
 	// let keyboard events run their full path even if the page tries to cut them short
 	const proto = frameWin.Event.prototype;
@@ -447,6 +452,7 @@ function forwardHotkeysToObsidian( iframe: any ) {
 		if( handled === false )
 			evt.preventDefault();
 	}, true );
+	return true;
 }
 
 function applyUserInteractivePatches( doc: HTMLDocument ) {

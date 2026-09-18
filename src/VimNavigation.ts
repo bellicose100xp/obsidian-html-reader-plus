@@ -678,8 +678,8 @@ export function installVimNavigation( host: VimNavigationHost, config: VimrcConf
 	// document body or on the leaf's chrome, neither of which is inside the iframe, so a
 	// listener on the container alone would go deaf until the user clicks the page again.
 	// Listen on the document and accept keys whose target is the body, inside this view, or
-	// one of its ancestors. Iframe keydowns are re-dispatched on the iframe element itself;
-	// those were already handled inside the frame.
+	// one of its ancestors. A keydown re-dispatched on the iframe element (the hotkey
+	// fallback path in HtmlView) was already handled inside the frame.
 	const hostDoc = host.containerEl.ownerDocument;
 	const hostHandle = ( evt: KeyboardEvent ) => {
 		const target = evt.target as Node | null;
